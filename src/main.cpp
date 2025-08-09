@@ -21,6 +21,12 @@ const int keyPins[12] = {14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 8, 12};
 // Hardware állapot változók
 volatile int lastClkState = LOW;
 volatile int hue = 0;
+volatile bool encoderChanged = false;
+volatile int encoderDirection = 0;
+
+// Encoder debounce változók
+volatile unsigned long lastEncoderTime = 0;
+const unsigned long encoderDebounceTime = 2; // 2ms debounce
 
 // Billentyűzet kezeléshez
 bool keyStates[12] = {false};
@@ -60,24 +66,33 @@ void updateRGBLeds() {
   analogWrite(bluePin2, b);
 }
 
-// Encoder változás kezelése (csak háttérvilágítás módban)
+// Javított encoder interrupt kezelés (minden állapotban működik)
 void onEncoderChange() {
-  if (stateMachine.getCurrentState() != &backlightState) return;
+  unsigned long currentTime = micros();
+  
+  // Debounce ellenőrzés
+  if (currentTime - lastEncoderTime < encoderDebounceTime * 1000) {
+    return;
+  }
+  lastEncoderTime = currentTime;
   
   int clkState = digitalRead(clkPin);
   int dtState = digitalRead(dtPin);
 
+  // Csak élek detektálása (LOW->HIGH vagy HIGH->LOW)
   if (clkState != lastClkState) {
-    if (dtState != clkState) {
-      hue += 5;
-    } else {
-      hue -= 5;
+    // Irány meghatározása
+    if (clkState == HIGH) {
+      // Csak rising edge-en értékelünk
+      if (dtState != clkState) {
+        encoderDirection = 1;  // Pozitív irány
+      } else {
+        encoderDirection = -1; // Negatív irány
+      }
+      encoderChanged = true;
     }
-
-    if (hue >= 360) hue -= 360;
-    if (hue < 0) hue += 360;
   }
-
+  
   lastClkState = clkState;
 }
 
@@ -100,31 +115,52 @@ void handleKeys() {
   }
 }
 
-// Encoder forgatás kezelése normál állapotban (volume)
-void handleEncoderRotation() {
-  static int lastEncoderState = 0;
-  int clkState = digitalRead(clkPin);
-  int dtState = digitalRead(dtPin);
-  
-  if (stateMachine.getCurrentState() == &normalState) {
-    if (clkState != lastEncoderState) {
-      if (dtState != clkState) {
-        stateMachine.handleVolumeControl(1); // Hangerő fel
-      } else {
-        stateMachine.handleVolumeControl(-1); // Hangerő le
-      }
+// Encoder forgatás feldolgozása (centralizált)
+void processEncoderRotation() {
+  if (encoderChanged) {
+    encoderChanged = false; // Reset flag
+    
+    State* currentState = stateMachine.getCurrentState();
+    
+    if (currentState == &normalState) {
+      // Volume kontroll normál állapotban
+      stateMachine.handleVolumeControl(encoderDirection);
+      Serial.print("Encoder volume: ");
+      Serial.println(encoderDirection > 0 ? "UP" : "DOWN");
+      
+    } else if (currentState == &backlightState || currentState == &initState) {
+      // Hue változtatás háttérvilágítás módban
+      hue += encoderDirection * 5;
+      if (hue >= 360) hue -= 360;
+      if (hue < 0) hue += 360;
+      Serial.print("Encoder hue: ");
+      Serial.print(hue);
+      Serial.print(" (");
+      Serial.print(encoderDirection > 0 ? "CW" : "CCW");
+      Serial.println(")");
     }
-    lastEncoderState = clkState;
   }
 }
 
 void setup() {
   Serial.begin(9600);
   
+  // Debug üzenet
+  Serial.println("MacroKeyboard Starting...");
+  Serial.println("Testing encoder pins...");
+  
   // Encoder pinek
   pinMode(clkPin, INPUT_PULLUP);
   pinMode(dtPin, INPUT_PULLUP);
   pinMode(swPin, INPUT_PULLUP);
+  
+  // Pin teszt - kezdeti állapotok kiolvasása
+  Serial.print("CLK pin initial state: ");
+  Serial.println(digitalRead(clkPin));
+  Serial.print("DT pin initial state: ");
+  Serial.println(digitalRead(dtPin));
+  Serial.print("SW pin initial state: ");
+  Serial.println(digitalRead(swPin));
   
   // RGB LED pinek
   pinMode(redPin, OUTPUT);
@@ -139,14 +175,26 @@ void setup() {
     pinMode(keyPins[i], INPUT_PULLUP);
   }
   
-  // Encoder interrupt beállítása
+  // Encoder interrupt beállítása mindkét pinre
   attachInterrupt(digitalPinToInterrupt(clkPin), onEncoderChange, CHANGE);
+  
+  // Kezdeti encoder állapot beállítása
+  lastClkState = digitalRead(clkPin);
+  
+  Serial.println("Interrupts attached, starting state machine...");
   
   // Állapotgép inicializálása
   stateMachine.initialize();
+  
+  Serial.println("Setup complete!");
 }
 
 void loop() {
+  // Diagnosztikai számláló (encoder teszt)
+  static unsigned long lastDiagnostic = 0;
+  static unsigned long loopCounter = 0;
+  loopCounter++;
+  
   // Serial kommunikáció feldolgozása
   stateMachine.processSerialInput();
   
@@ -154,6 +202,7 @@ void loop() {
   bool currentEncoderButton = !digitalRead(swPin);
   if (currentEncoderButton && !lastEncoderButtonState) {
     stateMachine.handleEncoderButton();
+    Serial.println("Encoder button pressed!");
   }
   lastEncoderButtonState = currentEncoderButton;
   
@@ -161,15 +210,16 @@ void loop() {
   State* currentState = stateMachine.getCurrentState();
   if (currentState == &initState) {
     // Várakozás a PC válaszára
+    processEncoderRotation(); // Javított encoder kezelés
   } else if (currentState == &normalState) {
     handleKeys();
-    handleEncoderRotation();
+    processEncoderRotation(); // Javított encoder kezelés
   } else if (currentState == &backlightState) {
-    // RGB LED színek frissítése (interrupt-ban történik a hue változtatás)
+    processEncoderRotation(); // Javított encoder kezelés
   } else if (currentState == &commandState) {
     stateMachine.handleCommandTimeout();
   }
-  
+  processEncoderRotation();
   // RGB LED frissítése
   updateRGBLeds();
   
@@ -178,6 +228,22 @@ void loop() {
   
   // Timeout kezelések
   stateMachine.handleDoubleClickTimeout();
+  
+  // Diagnosztikai kimenet (5 másodpercenként)
+  if (millis() - lastDiagnostic > 5000) {
+    lastDiagnostic = millis();
+    Serial.print("Loop count: ");
+    Serial.print(loopCounter);
+    Serial.print(" | Encoder changes: ");
+    Serial.print(encoderChanged ? "ACTIVE" : "IDLE");
+    Serial.print(" | CLK: ");
+    Serial.print(digitalRead(clkPin));
+    Serial.print(" | DT: ");
+    Serial.print(digitalRead(dtPin));
+    Serial.print(" | Current hue: ");
+    Serial.println(hue);
+    loopCounter = 0;
+  }
   
   delay(10);
 }
