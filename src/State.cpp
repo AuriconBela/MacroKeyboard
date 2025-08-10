@@ -30,7 +30,7 @@ void InitState::enter(StateMachine* context) {
 }
 
 void InitState::processSerialMessage(StateMachine* context, const String& message) {
-  if (message.startsWith("KEY_CONFIG:")) {
+  if (message.startsWith("READY")) {
     String config = message.substring(11);
     context->parseKeyConfig(config);
     context->setInitComplete(true);
@@ -271,10 +271,10 @@ void BacklightState::updateLCD(StateMachine* context) {
   display.setCursor(30, 25);
   display.print(displayHue);
   
-  // Egyszerű RGB értékek
-  int r = (displayHue < 120) ? 255 : 0;
-  int g = (displayHue >= 60 && displayHue < 240) ? 255 : 0;
-  int b = (displayHue >= 180) ? 255 : 0;
+  // Helyes RGB számítás a hueToRGB függvénnyel
+  extern void hueToRGB(int hue, int& r, int& g, int& b);
+  int r, g, b;
+  hueToRGB(displayHue, r, g, b);
   
   display.setTextSize(1);
   display.setCursor(10, 55);
@@ -286,6 +286,27 @@ void BacklightState::updateLCD(StateMachine* context) {
   display.setCursor(90, 55);
   display.print(F("B:"));
   display.print(b);
+  
+  // Színátmenetes sáv megjelenítése
+  display.setTextSize(1);
+  display.setCursor(0, 45);
+  display.print(F("Sat: "));
+  for(int i = 0; i < 8; i++) {
+    int sat = 25 + (i * 10); // 25%-95% telítettség
+    extern void hueToRGBWithSaturation(int hue, int saturation, int& r, int& g, int& b);
+    int gr, gg, gb;
+    hueToRGBWithSaturation(displayHue, sat, gr, gg, gb);
+    
+    // ASCII "pixelek" a telítettség szerint
+    char intensity = ' ';
+    int brightness = (gr + gg + gb) / 3;
+    if(brightness > 180) intensity = '#';
+    else if(brightness > 120) intensity = '*';
+    else if(brightness > 60) intensity = '.';
+    else intensity = ' ';
+    
+    display.print(intensity);
+  }
   
   // Használati utasítás
   display.setCursor(15, 15);

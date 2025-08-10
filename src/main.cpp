@@ -51,22 +51,43 @@ bool lastKeyStates[12] = {false};
 // Encoder gomb kezeléshez
 bool lastEncoderButtonState = false;
 
-// Hue (0–360) → RGB (0–255)
-void hueToRGB(int hue, int& r, int& g, int& b) {
-  float h = hue / 60.0;
-  float x = 1 - abs(fmod(h, 2) - 1);
+// HSV (0-360, 0-100, 0-100) → RGB (0-255) konverzió
+void hsvToRGB(int hue, int saturation, int value, int& r, int& g, int& b) {
+  // Normalizálás
+  float h = (hue % 360) / 60.0;  // 0-6 tartomány
+  float s = saturation / 100.0;  // 0-1 tartomány  
+  float v = value / 100.0;       // 0-1 tartomány
+  
+  int i = (int)h;
+  float f = h - i;
+  float p = v * (1 - s);
+  float q = v * (1 - s * f);
+  float t = v * (1 - s * (1 - f));
+  
   float r1, g1, b1;
+  
+  switch(i) {
+    case 0: r1 = v; g1 = t; b1 = p; break;
+    case 1: r1 = q; g1 = v; b1 = p; break;
+    case 2: r1 = p; g1 = v; b1 = t; break;
+    case 3: r1 = p; g1 = q; b1 = v; break;
+    case 4: r1 = t; g1 = p; b1 = v; break;
+    default: r1 = v; g1 = p; b1 = q; break;
+  }
+  
+  r = (int)(r1 * 255);
+  g = (int)(g1 * 255);
+  b = (int)(b1 * 255);
+}
 
-  if (h < 1) { r1 = 1; g1 = x; b1 = 0; }
-  else if (h < 2) { r1 = x; g1 = 1; b1 = 0; }
-  else if (h < 3) { r1 = 0; g1 = 1; b1 = x; }
-  else if (h < 4) { r1 = 0; g1 = x; b1 = 1; }
-  else if (h < 5) { r1 = x; g1 = 0; b1 = 1; }
-  else { r1 = 1; g1 = 0; b1 = x; }
+// Kompatibilitási wrapper a régi hueToRGB-hez (telített, fényes színek)
+void hueToRGB(int hue, int& r, int& g, int& b) {
+  hsvToRGB(hue, 100, 100, r, g, b); // 100% telítettség, 100% világosság
+}
 
-  r = int(r1 * 255);
-  g = int(g1 * 255);
-  b = int(b1 * 255);
+// Változó telítettségű színek generálása
+void hueToRGBWithSaturation(int hue, int saturation, int& r, int& g, int& b) {
+  hsvToRGB(hue, saturation, 100, r, g, b); // 100% világosság, változó telítettség
 }
 
 // RGB LED frissítése
@@ -140,24 +161,12 @@ void processEncoderRotation() {
     
     if (currentState == &normalState) {
       // Volume kontroll normál állapotban
-      stateMachine.handleVolumeControl(encoderDirection);
-      // #ifndef USE_MINIMAL_DISPLAY
-      // Serial.print("Encoder volume: ");
-      // Serial.println(encoderDirection > 0 ? "UP" : "DOWN");
-      // #endif
-      
+      stateMachine.handleVolumeControl(encoderDirection);      
     } else if (currentState == &backlightState || currentState == &initState) {
       // Hue változtatás háttérvilágítás módban
       hue += encoderDirection * 5;
       if (hue >= 360) hue -= 360;
       if (hue < 0) hue += 360;
-      // #ifndef USE_MINIMAL_DISPLAY
-      // Serial.print("Encoder hue: ");
-      // Serial.print(hue);
-      // Serial.print(" (");
-      // Serial.print(encoderDirection > 0 ? "CW" : "CCW");
-      // Serial.println(")");
-      // #endif
     }
   }
 }
@@ -282,8 +291,30 @@ void loop() {
   // Állapot függő logika
   State* currentState = stateMachine.getCurrentState();
   if (currentState == &initState) {
-    // Várakozás a PC válaszára
+    #ifdef IMITATE_PC_ANSWER
+    // Várakozás a PC válaszára - automatikus válasz szimuláció 3 másodperc után
+    static unsigned long initStartTime = 0;
+    static bool initTimerStarted = false;
     
+    // Timer indítása az első alkalommal
+    if (!initTimerStarted) {
+      initStartTime = millis();
+      initTimerStarted = true;
+      Serial.println(F("Init state entered - waiting for PC response or 3 second timeout..."));
+    }
+    
+    // 3 másodperc után automatikus válasz
+    if (millis() - initStartTime > 3000) {
+      Serial.println(F("Simulating PC response: 'READY'"));
+      // Szimuláljuk az állapot válasz feldolgozását közvetlenül
+      #endif
+      if (currentState) {
+        currentState->processSerialMessage(&stateMachine, "READY");
+      }
+      #ifdef IMITATE_PC_ANSWER
+      initTimerStarted = false; // Reset timer for next time
+    }
+    #endif
   } else if (currentState == &normalState) {
     handleKeys();
     processEncoderRotation(); // Javított encoder kezelés
@@ -292,7 +323,6 @@ void loop() {
   } else if (currentState == &commandState) {
     stateMachine.handleCommandTimeout();
   }
-  //processEncoderRotation();
   // RGB LED frissítése
   updateRGBLeds();
   
@@ -301,22 +331,6 @@ void loop() {
   
   // Timeout kezelések
   stateMachine.handleDoubleClickTimeout();
-  
-  // // Diagnosztikai kimenet (5 másodpercenként)
-  // if (millis() - lastDiagnostic > 5000) {
-  //   lastDiagnostic = millis();
-  //   Serial.print("Loop count: ");
-  //   Serial.print(loopCounter);
-  //   Serial.print(" | Encoder changes: ");
-  //   Serial.print(encoderChanged ? "ACTIVE" : "IDLE");
-  //   Serial.print(" | CLK: ");
-  //   Serial.print(digitalRead(clkPin));
-  //   Serial.print(" | DT: ");
-  //   Serial.print(digitalRead(dtPin));
-  //   Serial.print(" | Current hue: ");
-  //   Serial.println(hue);
-  //   loopCounter = 0;
-  // }
   
   delay(10);
 }
