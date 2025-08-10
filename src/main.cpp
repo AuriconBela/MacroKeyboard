@@ -13,21 +13,21 @@
 // OLED display objektum
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 
-// RGB LED pinjei
-const int redPin = 9;
-const int greenPin = 10;
-const int bluePin = 11;
-const int redPin2 = 5;
-const int greenPin2 = 6;
-const int bluePin2 = 7;
+// RGB LED pinjei (PWM képes pinek, I2C pinektől eltérően)
+const int redPin = 5;    // PWM pin
+const int greenPin = 6;  // PWM pin  
+const int bluePin = 10;  // PWM pin
+const int redPin2 = 11;  // PWM pin
+const int greenPin2 = 9; // PWM pin
+const int bluePin2 = 12; // Digitális pin
 
-// Encoder pinjei
-const int clkPin = 2;
-const int dtPin = 3;
-const int swPin = 4;  // Encoder gomb
+// Encoder pinjei (I2C-től eltérő pinek)
+const int clkPin = 7;   // Encoder CLK (A pin)
+const int dtPin = 8;    // Encoder DT (B pin)  
+const int swPin = 4;    // Encoder gomb (SW pin)
 
-// Billentyűzet pinjei (12 billentyű)
-const int keyPins[12] = {14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 8, 12};
+// Billentyűzet pinjei (12 billentyű) - pin ütközések elkerülése
+const int keyPins[12] = {14, 15, 16, 17, 18, 19, 20, 21, 22, 23, A0, A1};
 
 // Hardware állapot változók
 volatile int lastClkState = LOW;
@@ -141,23 +141,23 @@ void processEncoderRotation() {
     if (currentState == &normalState) {
       // Volume kontroll normál állapotban
       stateMachine.handleVolumeControl(encoderDirection);
-      #ifndef USE_MINIMAL_DISPLAY
-      Serial.print("Encoder volume: ");
-      Serial.println(encoderDirection > 0 ? "UP" : "DOWN");
-      #endif
+      // #ifndef USE_MINIMAL_DISPLAY
+      // Serial.print("Encoder volume: ");
+      // Serial.println(encoderDirection > 0 ? "UP" : "DOWN");
+      // #endif
       
     } else if (currentState == &backlightState || currentState == &initState) {
       // Hue változtatás háttérvilágítás módban
       hue += encoderDirection * 5;
       if (hue >= 360) hue -= 360;
       if (hue < 0) hue += 360;
-      #ifndef USE_MINIMAL_DISPLAY
-      Serial.print("Encoder hue: ");
-      Serial.print(hue);
-      Serial.print(" (");
-      Serial.print(encoderDirection > 0 ? "CW" : "CCW");
-      Serial.println(")");
-      #endif
+      // #ifndef USE_MINIMAL_DISPLAY
+      // Serial.print("Encoder hue: ");
+      // Serial.print(hue);
+      // Serial.print(" (");
+      // Serial.print(encoderDirection > 0 ? "CW" : "CCW");
+      // Serial.println(")");
+      // #endif
     }
   }
 }
@@ -166,16 +166,37 @@ void setup() {
   // Serial inicializálás késleltetéssel
   Serial.begin(9600);
   while (!Serial) ; // Wait for Serial to be ready
-  Serial.println("MacroKeyboard Starting...");
-  Serial.println("Serial communication initialized!");
+  Serial.println(F("MacroKeyboard Starting..."));
 
   Wire.begin();
+  //Serial.println("I2C bus initialized");
+  
+  // // I2C eszközök keresése
+  // Serial.println("Scanning I2C devices...");
+  // byte error, address;
+  // int nDevices = 0;
+  // for(address = 1; address < 127; address++) {
+  //   Wire.beginTransmission(address);
+  //   error = Wire.endTransmission();
+  //   if (error == 0) {
+  //     Serial.print("I2C device found at address 0x");
+  //     if (address < 16) Serial.print("0");
+  //     Serial.print(address, HEX);
+  //     Serial.println(" !");
+  //     nDevices++;
+  //   }
+  // }
+  // if (nDevices == 0) {
+  //   Serial.println("No I2C devices found - check wiring!");
+  // } else {
+  //   Serial.print("Found ");
+  //   Serial.print(nDevices);
+  //   Serial.println(" I2C devices");
+  // }
+  
   // OLED display inicializálása
-  Serial.println("Initializing OLED display...");
-  
-  // I2C inicializálás
-  //Wire.begin();
-  
+  Serial.println(F("Initializing OLED display..."));
+
   // OLED inicializálás próbálkozás többféle címmel
   bool displayInitialized = false;
   
@@ -183,14 +204,7 @@ void setup() {
   if(display.begin(SSD1306_SWITCHCAPVCC, 0x3C)) {
     displayInitialized = true;
     //#ifndef USE_MINIMAL_DISPLAY
-    Serial.println("OLED initialized at 0x3C");
-    //#endif
-  }
-  // Ha nem sikerült, próbáljuk meg 0x3D címmel
-  else if(display.begin(SSD1306_SWITCHCAPVCC, 0x3D)) {
-    displayInitialized = true;
-    //#ifndef USE_MINIMAL_DISPLAY
-    Serial.println("OLED initialized at 0x3D");
+    Serial.println(F("OLED initialized at 0x3C"));
     //#endif
   }
   
@@ -204,7 +218,6 @@ void setup() {
   }
   
   // Display alapbeállítás és teszt
-  display.begin(SSD1306_SWITCHCAPVCC, 0x3C);
   // display.clearDisplay();
   // display.setTextSize(1);
   // display.setTextColor(SSD1306_WHITE);
@@ -214,6 +227,7 @@ void setup() {
   // display.setCursor(0, 20);
   // display.println(F("OLED Test OK"));
   // display.display();
+  // Serial.println("OLED display test completed!");
   // delay(2000); // 2 másodperc várakozás
   
   // Encoder pinek
@@ -223,11 +237,11 @@ void setup() {
   
   // Pin teszt - kezdeti állapotok kiolvasása
   #ifndef USE_MINIMAL_DISPLAY
-  Serial.print("CLK pin initial state: ");
+  Serial.print(F("CLK pin initial state: "));
   Serial.println(digitalRead(clkPin));
-  Serial.print("DT pin initial state: ");
+  Serial.print(F("DT pin initial state: "));
   Serial.println(digitalRead(dtPin));
-  Serial.print("SW pin initial state: ");
+  Serial.print(F("SW pin initial state: "));
   Serial.println(digitalRead(swPin));
   #endif
   
@@ -254,14 +268,14 @@ void setup() {
   lastClkState = digitalRead(clkPin);
   
   #ifndef USE_MINIMAL_DISPLAY
-  Serial.println("Interrupts attached, starting state machine...");
+  Serial.println(F("Interrupts attached, starting state machine..."));
   #endif
   
   // Állapotgép inicializálása
   stateMachine.initialize();
   
   #ifndef USE_MINIMAL_DISPLAY
-  Serial.println("Setup complete!");
+  Serial.println(F("Setup complete!"));
   #endif
 }
 
@@ -279,7 +293,7 @@ void loop() {
   if (currentEncoderButton && !lastEncoderButtonState) {
     stateMachine.handleEncoderButton();
     #ifndef USE_MINIMAL_DISPLAY
-    Serial.println("Encoder button pressed!");
+    Serial.println(F("Encoder button pressed!"));
     #endif
   }
   lastEncoderButtonState = currentEncoderButton;
@@ -302,26 +316,26 @@ void loop() {
   updateRGBLeds();
   
   // LCD frissítése
-  updateLCD();
+  //updateLCD();
   
   // Timeout kezelések
   stateMachine.handleDoubleClickTimeout();
   
-  // Diagnosztikai kimenet (5 másodpercenként)
-  if (millis() - lastDiagnostic > 5000) {
-    lastDiagnostic = millis();
-    Serial.print("Loop count: ");
-    Serial.print(loopCounter);
-    Serial.print(" | Encoder changes: ");
-    Serial.print(encoderChanged ? "ACTIVE" : "IDLE");
-    Serial.print(" | CLK: ");
-    Serial.print(digitalRead(clkPin));
-    Serial.print(" | DT: ");
-    Serial.print(digitalRead(dtPin));
-    Serial.print(" | Current hue: ");
-    Serial.println(hue);
-    loopCounter = 0;
-  }
+  // // Diagnosztikai kimenet (5 másodpercenként)
+  // if (millis() - lastDiagnostic > 5000) {
+  //   lastDiagnostic = millis();
+  //   Serial.print("Loop count: ");
+  //   Serial.print(loopCounter);
+  //   Serial.print(" | Encoder changes: ");
+  //   Serial.print(encoderChanged ? "ACTIVE" : "IDLE");
+  //   Serial.print(" | CLK: ");
+  //   Serial.print(digitalRead(clkPin));
+  //   Serial.print(" | DT: ");
+  //   Serial.print(digitalRead(dtPin));
+  //   Serial.print(" | Current hue: ");
+  //   Serial.println(hue);
+  //   loopCounter = 0;
+  // }
   
   delay(10);
 }
