@@ -163,13 +163,13 @@ void processEncoderRotation() {
 }
 
 void setup() {
-  // Serial inicializálás késleltetéssel
+  #ifndef USE_MINIMAL_DISPLAY
   Serial.begin(9600);
   while (!Serial) ; // Wait for Serial to be ready
   Serial.println(F("MacroKeyboard Starting..."));
+  #endif
 
   Wire.begin();
-  //Serial.println("I2C bus initialized");
   
   // // I2C eszközök keresése
   // Serial.println("Scanning I2C devices...");
@@ -195,40 +195,29 @@ void setup() {
   // }
   
   // OLED display inicializálása
+  #ifndef USE_MINIMAL_DISPLAY  
   Serial.println(F("Initializing OLED display..."));
+  #endif
 
   // OLED inicializálás próbálkozás többféle címmel
   bool displayInitialized = false;
   
   // Próbáljuk meg 0x3C címmel
-  if(display.begin(SSD1306_SWITCHCAPVCC, 0x3C)) {
+  if(display.begin(SSD1306_SWITCHCAPVCC, SCREEN_ADDRESS)) {
     displayInitialized = true;
-    //#ifndef USE_MINIMAL_DISPLAY
+    #ifndef USE_MINIMAL_DISPLAY
     Serial.println(F("OLED initialized at 0x3C"));
-    //#endif
+    #endif
   }
   
   if (!displayInitialized) {
-    //#ifndef USE_MINIMAL_DISPLAY
+    #ifndef USE_MINIMAL_DISPLAY
     Serial.println(F("SSD1306 allocation failed"));
-    //#endif
+    #endif
     // LED hibajelzés
     digitalWrite(redPin, HIGH);
     for(;;); // Végtelen ciklus hiba esetén
   }
-  
-  // Display alapbeállítás és teszt
-  // display.clearDisplay();
-  // display.setTextSize(1);
-  // display.setTextColor(SSD1306_WHITE);
-  // display.setCursor(0, 0);
-  // display.println(F("MacroKeyboard"));
-  // display.println(F("v2.0 Starting..."));
-  // display.setCursor(0, 20);
-  // display.println(F("OLED Test OK"));
-  // display.display();
-  // Serial.println("OLED display test completed!");
-  // delay(2000); // 2 másodperc várakozás
   
   // Encoder pinek
   pinMode(clkPin, INPUT_PULLUP);
@@ -253,9 +242,6 @@ void setup() {
   pinMode(greenPin2, OUTPUT);
   pinMode(bluePin2, OUTPUT);
   
-  // LED teszt - zöld jelzi a sikeres inicializálást
-  digitalWrite(greenPin, HIGH);
-  delay(500);
   digitalWrite(greenPin, LOW);  // Billentyűzet pinek
   for (int i = 0; i < 12; i++) {
     pinMode(keyPins[i], INPUT_PULLUP);
@@ -279,12 +265,7 @@ void setup() {
   #endif
 }
 
-void loop() {
-  // Diagnosztikai számláló (encoder teszt)
-  static unsigned long lastDiagnostic = 0;
-  static unsigned long loopCounter = 0;
-  loopCounter++;
-  
+void loop() {  
   // Serial kommunikáció feldolgozása
   stateMachine.processSerialInput();
   
@@ -302,7 +283,7 @@ void loop() {
   State* currentState = stateMachine.getCurrentState();
   if (currentState == &initState) {
     // Várakozás a PC válaszára
-    processEncoderRotation(); // Javított encoder kezelés
+    
   } else if (currentState == &normalState) {
     handleKeys();
     processEncoderRotation(); // Javított encoder kezelés
@@ -316,7 +297,7 @@ void loop() {
   updateRGBLeds();
   
   // LCD frissítése
-  //updateLCD();
+  updateLCD();
   
   // Timeout kezelések
   stateMachine.handleDoubleClickTimeout();
