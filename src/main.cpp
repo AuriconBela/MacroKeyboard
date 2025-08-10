@@ -1,6 +1,17 @@
 #include <Arduino.h>
+#include <Wire.h>
+#include <Adafruit_SSD1306.h>
 #include "StateMachine.h"
 #include "State.h"
+
+// OLED Display konfigurációs konstansok
+#define SCREEN_WIDTH 128
+#define SCREEN_HEIGHT 64
+#define OLED_RESET -1    // Arduino Micro-n nincs reset pin
+#define SCREEN_ADDRESS 0x3C // vagy 0x3D, attól függ az OLED címzése
+
+// OLED display objektum
+Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 
 // RGB LED pinjei
 const int redPin = 9;
@@ -27,6 +38,11 @@ volatile int encoderDirection = 0;
 // Encoder debounce változók
 volatile unsigned long lastEncoderTime = 0;
 const unsigned long encoderDebounceTime = 2; // 2ms debounce
+
+// Hue érték lekérdezésére szolgáló függvény
+int getCurrentHue() {
+  return hue;
+}
 
 // Billentyűzet kezeléshez
 bool keyStates[12] = {false};
@@ -125,29 +141,80 @@ void processEncoderRotation() {
     if (currentState == &normalState) {
       // Volume kontroll normál állapotban
       stateMachine.handleVolumeControl(encoderDirection);
+      #ifndef USE_MINIMAL_DISPLAY
       Serial.print("Encoder volume: ");
       Serial.println(encoderDirection > 0 ? "UP" : "DOWN");
+      #endif
       
     } else if (currentState == &backlightState || currentState == &initState) {
       // Hue változtatás háttérvilágítás módban
       hue += encoderDirection * 5;
       if (hue >= 360) hue -= 360;
       if (hue < 0) hue += 360;
+      #ifndef USE_MINIMAL_DISPLAY
       Serial.print("Encoder hue: ");
       Serial.print(hue);
       Serial.print(" (");
       Serial.print(encoderDirection > 0 ? "CW" : "CCW");
       Serial.println(")");
+      #endif
     }
   }
 }
 
 void setup() {
+  // Serial inicializálás késleltetéssel
   Serial.begin(9600);
-  
-  // Debug üzenet
+  while (!Serial) ; // Wait for Serial to be ready
   Serial.println("MacroKeyboard Starting...");
-  Serial.println("Testing encoder pins...");
+  Serial.println("Serial communication initialized!");
+
+  Wire.begin();
+  // OLED display inicializálása
+  Serial.println("Initializing OLED display...");
+  
+  // I2C inicializálás
+  //Wire.begin();
+  
+  // OLED inicializálás próbálkozás többféle címmel
+  bool displayInitialized = false;
+  
+  // Próbáljuk meg 0x3C címmel
+  if(display.begin(SSD1306_SWITCHCAPVCC, 0x3C)) {
+    displayInitialized = true;
+    //#ifndef USE_MINIMAL_DISPLAY
+    Serial.println("OLED initialized at 0x3C");
+    //#endif
+  }
+  // Ha nem sikerült, próbáljuk meg 0x3D címmel
+  else if(display.begin(SSD1306_SWITCHCAPVCC, 0x3D)) {
+    displayInitialized = true;
+    //#ifndef USE_MINIMAL_DISPLAY
+    Serial.println("OLED initialized at 0x3D");
+    //#endif
+  }
+  
+  if (!displayInitialized) {
+    //#ifndef USE_MINIMAL_DISPLAY
+    Serial.println(F("SSD1306 allocation failed"));
+    //#endif
+    // LED hibajelzés
+    digitalWrite(redPin, HIGH);
+    for(;;); // Végtelen ciklus hiba esetén
+  }
+  
+  // Display alapbeállítás és teszt
+  display.begin(SSD1306_SWITCHCAPVCC, 0x3C);
+  // display.clearDisplay();
+  // display.setTextSize(1);
+  // display.setTextColor(SSD1306_WHITE);
+  // display.setCursor(0, 0);
+  // display.println(F("MacroKeyboard"));
+  // display.println(F("v2.0 Starting..."));
+  // display.setCursor(0, 20);
+  // display.println(F("OLED Test OK"));
+  // display.display();
+  // delay(2000); // 2 másodperc várakozás
   
   // Encoder pinek
   pinMode(clkPin, INPUT_PULLUP);
@@ -155,22 +222,27 @@ void setup() {
   pinMode(swPin, INPUT_PULLUP);
   
   // Pin teszt - kezdeti állapotok kiolvasása
+  #ifndef USE_MINIMAL_DISPLAY
   Serial.print("CLK pin initial state: ");
   Serial.println(digitalRead(clkPin));
   Serial.print("DT pin initial state: ");
   Serial.println(digitalRead(dtPin));
   Serial.print("SW pin initial state: ");
   Serial.println(digitalRead(swPin));
+  #endif
   
-  // RGB LED pinek
+  // RGB LED pinek (hibajelzéshez is)
   pinMode(redPin, OUTPUT);
   pinMode(greenPin, OUTPUT);
   pinMode(bluePin, OUTPUT);
   pinMode(redPin2, OUTPUT);
-  pinMode(greenPin2, OUTPUT); 
+  pinMode(greenPin2, OUTPUT);
   pinMode(bluePin2, OUTPUT);
   
-  // Billentyűzet pinek
+  // LED teszt - zöld jelzi a sikeres inicializálást
+  digitalWrite(greenPin, HIGH);
+  delay(500);
+  digitalWrite(greenPin, LOW);  // Billentyűzet pinek
   for (int i = 0; i < 12; i++) {
     pinMode(keyPins[i], INPUT_PULLUP);
   }
@@ -181,12 +253,16 @@ void setup() {
   // Kezdeti encoder állapot beállítása
   lastClkState = digitalRead(clkPin);
   
+  #ifndef USE_MINIMAL_DISPLAY
   Serial.println("Interrupts attached, starting state machine...");
+  #endif
   
   // Állapotgép inicializálása
   stateMachine.initialize();
   
+  #ifndef USE_MINIMAL_DISPLAY
   Serial.println("Setup complete!");
+  #endif
 }
 
 void loop() {
@@ -202,7 +278,9 @@ void loop() {
   bool currentEncoderButton = !digitalRead(swPin);
   if (currentEncoderButton && !lastEncoderButtonState) {
     stateMachine.handleEncoderButton();
+    #ifndef USE_MINIMAL_DISPLAY
     Serial.println("Encoder button pressed!");
+    #endif
   }
   lastEncoderButtonState = currentEncoderButton;
   
@@ -219,7 +297,7 @@ void loop() {
   } else if (currentState == &commandState) {
     stateMachine.handleCommandTimeout();
   }
-  processEncoderRotation();
+  //processEncoderRotation();
   // RGB LED frissítése
   updateRGBLeds();
   

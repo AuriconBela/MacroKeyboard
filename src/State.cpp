@@ -1,6 +1,21 @@
 #include "State.h"
 #include "StateMachine.h"
 
+// PROGMEM string konstansok - RAM helyett Flash memóriában tárolva
+const char INIT_STR[] PROGMEM = "MacroBoard";
+const char LOADING_STR[] PROGMEM = "Loading";
+const char MACRO_STR[] PROGMEM = "MacroKeyboard";
+const char VOL_STR[] PROGMEM = "Vol:";
+const char MUTED_STR[] PROGMEM = "[MUTED]";
+const char RGB_STR[] PROGMEM = "2x=RGB";
+const char BACKLIGHT_STR[] PROGMEM = "RGB Backlight";
+const char HUE_STR[] PROGMEM = "HUE";
+const char ROTATE_STR[] PROGMEM = "Rotate encoder";
+const char EXIT_STR[] PROGMEM = "2x click = exit";
+const char EXEC_STR[] PROGMEM = "EXECUTING";
+const char TIME_STR[] PROGMEM = "Time: ";
+const char WAIT_STR[] PROGMEM = "Please wait";
+
 // Globális állapot példányok
 InitState initState;
 NormalState normalState;
@@ -24,8 +39,75 @@ void InitState::processSerialMessage(StateMachine* context, const String& messag
 }
 
 void InitState::updateLCD(StateMachine* context) {
-  // TODO: LCD inicializáló grafika megjelenítése
-  // Például: "Initializing..." vagy animáció
+  #ifdef USE_MINIMAL_DISPLAY
+  // Minimális inicializáló megjelenítés
+  static unsigned long lastUpdate = 0;
+  static int dotCount = 0;
+  
+  if (millis() - lastUpdate > 500) {
+    lastUpdate = millis();
+    
+    display.clearDisplay();
+    display.setTextSize(2);
+    display.setTextColor(SSD1306_WHITE);
+    display.setCursor(10, 20);
+    display.print(F("MacroBoard"));
+    
+    // Egyszerű loading pontok
+    display.setTextSize(1);
+    display.setCursor(30, 45);
+    display.print(F("Loading"));
+    for (int i = 0; i < (dotCount % 4); i++) {
+      display.print(F("."));
+    }
+    
+    display.display();
+    dotCount++;
+  }
+  #else
+  // Teljes animáció (ha van elég hely)
+  static unsigned long lastUpdate = 0;
+  static int animFrame = 0;
+  static int dotCount = 0;
+  
+  unsigned long currentTime = millis();
+  
+  if (currentTime - lastUpdate > 200) {
+    lastUpdate = currentTime;
+    
+    display.clearDisplay();
+    
+    display.setTextSize(2);
+    display.setTextColor(SSD1306_WHITE);
+    display.setCursor(5, 5);
+    display.print((__FlashStringHelper*)INIT_STR);
+    
+    const char spinner[] = {'|', '/', '-', '\\'};
+    int spinnerChar = animFrame % 4;
+    display.setCursor(64, 25);
+    display.setTextSize(3);
+    display.print(spinner[spinnerChar]);
+    
+    String loadingText = (__FlashStringHelper*)LOADING_STR;
+    for (int i = 0; i < (dotCount % 4); i++) {
+      loadingText += ".";
+    }
+    display.setCursor(30, 45);
+    display.setTextSize(1);
+    display.print(loadingText);
+    
+    int progressWidth = (animFrame * 3) % 80;
+    display.drawRect(24, 55, 80, 6, SSD1306_WHITE);
+    display.fillRect(25, 56, progressWidth, 4, SSD1306_WHITE);
+    
+    animFrame++;
+    if (animFrame % 3 == 0) {
+      dotCount++;
+    }
+    
+    display.display();
+  }
+  #endif
 }
 
 // ===== NormalState implementáció =====
@@ -85,8 +167,62 @@ void NormalState::handleTimeout(StateMachine* context) {
 }
 
 void NormalState::updateLCD(StateMachine* context) {
-  // TODO: Gomb nevek megjelenítése
-  // Például grid layout a 12 gombhoz
+  // Egyszerűsített normál állapot megjelenítés
+  display.clearDisplay();
+  display.setTextSize(1);
+  display.setTextColor(SSD1306_WHITE);
+  
+  // Fejléc
+  display.setCursor(25, 2);
+  display.print(F("MacroKeyboard"));
+  
+  // Volume és Mute (egyszerűsítve)
+  int volume = context->getCurrentVolume();
+  bool muted = context->getIsMuted();
+  
+  display.setCursor(2, 55);
+  display.print(F("Vol:"));
+  display.print(volume);
+  if (muted) {
+    display.setCursor(50, 55);
+    display.print(F("[MUTE]"));
+  }
+  
+  // Egyszerűsített 2x6 gomb layout (kisebb)
+  const int buttonWidth = 20;
+  const int buttonHeight = 10;
+  const int startX = 4;
+  const int startY = 15;
+  const int spacingX = 21;
+  const int spacingY = 12;
+  
+  for (int row = 0; row < 2; row++) {
+    for (int col = 0; col < 6; col++) {
+      int buttonIndex = row * 6 + col;
+      int x = startX + col * spacingX;
+      int y = startY + row * spacingY;
+      
+      if (context->isKeyAssigned(buttonIndex)) {
+        // Aktív gomb - teli keret
+        display.fillRect(x, y, buttonWidth, buttonHeight, SSD1306_WHITE);
+        display.setTextColor(SSD1306_BLACK);
+        display.setCursor(x + 2, y + 2);
+        display.print(buttonIndex);
+        display.setTextColor(SSD1306_WHITE);
+      } else {
+        // Inaktív gomb - üres keret
+        display.drawRect(x, y, buttonWidth, buttonHeight, SSD1306_WHITE);
+        display.setCursor(x + 8, y + 2);
+        display.print(F("-"));
+      }
+    }
+  }
+  
+  // Encoder hint
+  display.setCursor(85, 55);
+  display.print(F("2x=RGB"));
+  
+  display.display();
 }
 
 // ===== BacklightState implementáció =====
@@ -119,8 +255,43 @@ void BacklightState::handleTimeout(StateMachine* context) {
 }
 
 void BacklightState::updateLCD(StateMachine* context) {
-  // TODO: Színbeállítás kijelzése
-  // Például: színkerék vagy RGB értékek
+  // Egyszerűsített háttérvilágítás mód
+  display.clearDisplay();
+  display.setTextColor(SSD1306_WHITE);
+  
+  int displayHue = getCurrentHue();
+  
+  // Fejléc
+  display.setTextSize(1);
+  display.setCursor(25, 2);
+  display.print(F("RGB Backlight"));
+  
+  // Nagy HUE szám középen
+  display.setTextSize(3);
+  display.setCursor(30, 25);
+  display.print(displayHue);
+  
+  // Egyszerű RGB értékek
+  int r = (displayHue < 120) ? 255 : 0;
+  int g = (displayHue >= 60 && displayHue < 240) ? 255 : 0;
+  int b = (displayHue >= 180) ? 255 : 0;
+  
+  display.setTextSize(1);
+  display.setCursor(10, 55);
+  display.print(F("R:"));
+  display.print(r);
+  display.setCursor(50, 55);
+  display.print(F("G:"));
+  display.print(g);
+  display.setCursor(90, 55);
+  display.print(F("B:"));
+  display.print(b);
+  
+  // Használati utasítás
+  display.setCursor(15, 15);
+  display.print(F("Rotate encoder"));
+  
+  display.display();
 }
 
 // ===== CommandState implementáció =====
@@ -154,6 +325,39 @@ void CommandState::handleTimeout(StateMachine* context) {
 }
 
 void CommandState::updateLCD(StateMachine* context) {
-  // TODO: "Parancs fut..." kijelzése
-  // Például: progress bar vagy spinner animáció
+  // Egyszerűsített parancs futás állapot
+  static unsigned long lastUpdate = 0;
+  static int animFrame = 0;
+  
+  unsigned long currentTime = millis();
+  unsigned long elapsed = currentTime - commandSentTime;
+  
+  if (currentTime - lastUpdate > 200) {
+    lastUpdate = currentTime;
+    
+    display.clearDisplay();
+    display.setTextColor(SSD1306_WHITE);
+    
+    // Fejléc
+    display.setTextSize(2);
+    display.setCursor(15, 10);
+    display.print(F("EXECUTING"));
+    
+    // Egyszerű spinner
+    const char spinner[] = {'|', '/', '-', '\\'};
+    int spinnerIndex = animFrame % 4;
+    display.setTextSize(3);
+    display.setCursor(55, 30);
+    display.print(spinner[spinnerIndex]);
+    
+    // Időzítő
+    display.setTextSize(1);
+    display.setCursor(45, 55);
+    display.print(F("Time: "));
+    display.print(elapsed / 1000);
+    display.print(F("s"));
+    
+    animFrame++;
+    display.display();
+  }
 }

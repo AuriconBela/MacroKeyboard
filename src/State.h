@@ -2,9 +2,16 @@
 #define STATE_H
 
 #include <Arduino.h>
+#include <Adafruit_SSD1306.h>
 
 // Forward deklaráció
 class StateMachine;
+
+// Külső display objektum referencia
+extern Adafruit_SSD1306 display;
+
+// Külső segédfüggvények
+extern int getCurrentHue();
 
 // Absztrakt State osztály
 class State {
