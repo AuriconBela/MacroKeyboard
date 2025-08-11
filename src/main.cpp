@@ -26,8 +26,9 @@ const int clkPin = 7;   // Encoder CLK (A pin)
 const int dtPin = 8;    // Encoder DT (B pin)  
 const int swPin = 4;    // Encoder gomb (SW pin)
 
-// Billentyűzet pinjei (12 billentyű) - pin ütközések elkerülése
-const int keyPins[12] = {14, 15, 16, 17, 18, 19, 20, 21, 22, 23, A0, A1};
+// Mátrix billentyűzet pinjei (4 oszlop × 3 sor = 12 billentyű) - analóg pinek használata
+const int colPins[4] = {A0, A1, A2, A3}; // Oszlop pinek (OUTPUT) - A0, A1, A2, A3
+const int rowPins[3] = {A4, A5, A6};     // Sor pinek (INPUT_PULLUP) - A4, A5, A6
 
 // Hardware állapot változók
 volatile int lastClkState = LOW;
@@ -44,7 +45,7 @@ int getCurrentHue() {
   return hue;
 }
 
-// Billentyűzet kezeléshez
+// Mátrix billentyűzet kezeléshez
 bool keyStates[12] = {false};
 bool lastKeyStates[12] = {false};
 
@@ -138,17 +139,46 @@ void updateLCD() {
   stateMachine.updateLCD();
 }
 
-// Billentyűk olvasása és kezelése
+// Mátrix billentyűk olvasása és kezelése
 void handleKeys() {
-  for (int i = 0; i < 12; i++) {
-    keyStates[i] = !digitalRead(keyPins[i]); // Pull-up miatt invertált
-    
-    // Billentyű lenyomás detektálása
-    if (keyStates[i] && !lastKeyStates[i]) {
-      stateMachine.handleKeyPress(i);
+  // Mátrix szkennelés: 4 oszlop × 3 sor
+  for (int col = 0; col < 4; col++) {
+    // Oszlop aktiválása (LOW)
+    for (int i = 0; i < 4; i++) {
+      digitalWrite(colPins[i], i == col ? LOW : HIGH);
     }
     
-    lastKeyStates[i] = keyStates[i];
+    // Kis késleltetés a jel stabilizálódásához
+    delayMicroseconds(10);
+    
+    // Sorok olvasása
+    for (int row = 0; row < 3; row++) {
+      int keyIndex = row * 4 + col; // 0-11 tartomány
+      bool currentState = !digitalRead(rowPins[row]); // Pull-up miatt invertált
+      
+      keyStates[keyIndex] = currentState;
+      
+      // Billentyű lenyomás detektálása (rising edge)
+      if (keyStates[keyIndex] && !lastKeyStates[keyIndex]) {
+        stateMachine.handleKeyPress(keyIndex);
+        #ifndef USE_MINIMAL_DISPLAY
+        Serial.print(F("Matrix key pressed: "));
+        Serial.print(keyIndex);
+        Serial.print(F(" (row: "));
+        Serial.print(row);
+        Serial.print(F(", col: "));
+        Serial.print(col);
+        Serial.println(F(")"));
+        #endif
+      }
+      
+      lastKeyStates[keyIndex] = keyStates[keyIndex];
+    }
+  }
+  
+  // Összes oszlop deaktiválása (HIGH) a szkennelés után
+  for (int i = 0; i < 4; i++) {
+    digitalWrite(colPins[i], HIGH);
   }
 }
 
@@ -251,10 +281,35 @@ void setup() {
   pinMode(greenPin2, OUTPUT);
   pinMode(bluePin2, OUTPUT);
   
-  digitalWrite(greenPin, LOW);  // Billentyűzet pinek
-  for (int i = 0; i < 12; i++) {
-    pinMode(keyPins[i], INPUT_PULLUP);
+  digitalWrite(greenPin, LOW);  
+  
+  // Mátrix billentyűzet pinek inicializálása
+  // Oszlop pinek (OUTPUT, kezdetben HIGH - inaktív)
+  for (int i = 0; i < 4; i++) {
+    pinMode(colPins[i], OUTPUT);
+    digitalWrite(colPins[i], HIGH); // Inaktív állapot
   }
+  
+  // Sor pinek (INPUT_PULLUP)
+  for (int i = 0; i < 3; i++) {
+    pinMode(rowPins[i], INPUT_PULLUP);
+  }
+  
+  #ifndef USE_MINIMAL_DISPLAY
+  Serial.println(F("Matrix keyboard pins configured:"));
+  Serial.print(F("Column pins: A0, A1, A2, A3 ("));
+  for (int i = 0; i < 4; i++) {
+    Serial.print(colPins[i]);
+    if (i < 3) Serial.print(F(", "));
+  }
+  Serial.println(F(")"));
+  Serial.print(F("Row pins: A4, A5, A6 ("));
+  for (int i = 0; i < 3; i++) {
+    Serial.print(rowPins[i]);
+    if (i < 2) Serial.print(F(", "));
+  }
+  Serial.println(F(")"));
+  #endif
   
   // Encoder interrupt beállítása mindkét pinre
   attachInterrupt(digitalPinToInterrupt(clkPin), onEncoderChange, CHANGE);

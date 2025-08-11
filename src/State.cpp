@@ -141,11 +141,26 @@ void NormalState::handleEncoderButton(StateMachine* context) {
 }
 
 void NormalState::handleKeyPress(StateMachine* context, int keyIndex) {
+  // Mindig küldünk értesítést a PC-nek a billentyű lenyomásról
+  String keyPressNotification = "KEY_PRESSED:" + String(keyIndex);
+  context->sendSerialMessage(keyPressNotification);
+  
+  #ifndef USE_MINIMAL_DISPLAY
+  Serial.print(F("Key notification sent for key "));
+  Serial.println(keyIndex);
+  #endif
+  
+  // Ha van konfigurált parancs ehhez a billentyűhöz, akkor parancs állapotba váltunk
   if (context->isKeyAssigned(keyIndex)) {
     String command = "KEY:" + String(keyIndex);
     context->sendSerialMessage(command);
     commandState.setPreviousState(this);
     context->changeState(&commandState);
+    
+    #ifndef USE_MINIMAL_DISPLAY
+    Serial.print(F("Executing assigned command for key "));
+    Serial.println(keyIndex);
+    #endif
   }
 }
 
@@ -188,17 +203,17 @@ void NormalState::updateLCD(StateMachine* context) {
     display.print(F("[MUTE]"));
   }
   
-  // Egyszerűsített 2x6 gomb layout (kisebb)
-  const int buttonWidth = 20;
-  const int buttonHeight = 10;
+  // 4x3 mátrix gomb layout
+  const int buttonWidth = 28;
+  const int buttonHeight = 12;
   const int startX = 4;
   const int startY = 15;
-  const int spacingX = 21;
-  const int spacingY = 12;
+  const int spacingX = 30;
+  const int spacingY = 14;
   
-  for (int row = 0; row < 2; row++) {
-    for (int col = 0; col < 6; col++) {
-      int buttonIndex = row * 6 + col;
+  for (int row = 0; row < 3; row++) {
+    for (int col = 0; col < 4; col++) {
+      int buttonIndex = row * 4 + col; // 0-11 tartomány
       int x = startX + col * spacingX;
       int y = startY + row * spacingY;
       
@@ -206,13 +221,17 @@ void NormalState::updateLCD(StateMachine* context) {
         // Aktív gomb - teli keret
         display.fillRect(x, y, buttonWidth, buttonHeight, SSD1306_WHITE);
         display.setTextColor(SSD1306_BLACK);
-        display.setCursor(x + 2, y + 2);
-        display.print(buttonIndex);
+        display.setCursor(x + 8, y + 3);
+        if (buttonIndex < 10) {
+          display.print(buttonIndex);
+        } else {
+          display.print(buttonIndex);
+        }
         display.setTextColor(SSD1306_WHITE);
       } else {
         // Inaktív gomb - üres keret
         display.drawRect(x, y, buttonWidth, buttonHeight, SSD1306_WHITE);
-        display.setCursor(x + 8, y + 2);
+        display.setCursor(x + 12, y + 3);
         display.print(F("-"));
       }
     }
