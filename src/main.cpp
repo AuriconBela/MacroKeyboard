@@ -1,6 +1,7 @@
 #include <Arduino.h>
 #include <Wire.h>
 #include <Adafruit_SSD1306.h>
+//#include <Keyboard.h>
 #include "StateMachine.h"
 #include "State.h"
 
@@ -26,9 +27,13 @@ const int clkPin = 7;   // Encoder CLK (A pin)
 const int dtPin = 8;    // Encoder DT (B pin)  
 const int swPin = 4;    // Encoder gomb (SW pin)
 
-// Mátrix billentyűzet pinjei (4 oszlop × 3 sor = 12 billentyű) - analóg pinek használata
-const int colPins[4] = {A0, A1, A2, A3}; // Oszlop pinek (OUTPUT) - A0, A1, A2, A3
-const int rowPins[3] = {A4, A5, A6};     // Sor pinek (INPUT_PULLUP) - A4, A5, A6
+const int rowPins[3] = {A0, A1, A2};       // Sor pinek (OUTPUT) - aktiváljuk őket LOW-val
+const int colPins[4] = {A3, A4, A5, 1};    // Oszlop pinek (INPUT_PULLUP) - TX pin helyett A6
+
+// Array méretek konstansai (dinamikus számítás)
+const int NUM_ROWS = sizeof(rowPins) / sizeof(rowPins[0]);
+const int NUM_COLS = sizeof(colPins) / sizeof(colPins[0]);
+const int NUM_KEYS = NUM_ROWS * NUM_COLS;
 
 // Hardware állapot változók
 volatile int lastClkState = LOW;
@@ -45,9 +50,9 @@ int getCurrentHue() {
   return hue;
 }
 
-// Mátrix billentyűzet kezeléshez
-bool keyStates[12] = {false};
-bool lastKeyStates[12] = {false};
+// Mátrix billentyűzet kezeléshez (dinamikus méret)
+bool keyStates[NUM_KEYS] = {false};
+bool lastKeyStates[NUM_KEYS] = {false};
 
 // Encoder gomb kezeléshez
 bool lastEncoderButtonState = false;
@@ -139,23 +144,25 @@ void updateLCD() {
   stateMachine.updateLCD();
 }
 
-// Mátrix billentyűk olvasása és kezelése
+// Mátrix billentyűk olvasása és kezelése (dinamikus méretekkel)
 void handleKeys() {
-  // Mátrix szkennelés: 4 oszlop × 3 sor
-  for (int col = 0; col < 4; col++) {
-    // Oszlop aktiválása (LOW)
-    for (int i = 0; i < 4; i++) {
-      digitalWrite(colPins[i], i == col ? LOW : HIGH);
+  for (int row = 0; row < NUM_ROWS; row++) {
+    // Összes sor HIGH-ra állítása (inaktív)
+    for (int i = 0; i < NUM_ROWS; i++) {
+      digitalWrite(rowPins[i], HIGH);
     }
+    
+    // Aktuális sor aktiválása (LOW)
+    digitalWrite(rowPins[row], LOW);
     
     // Kis késleltetés a jel stabilizálódásához
     delayMicroseconds(10);
     
-    // Sorok olvasása
-    for (int row = 0; row < 3; row++) {
-      int keyIndex = row * 4 + col; // 0-11 tartomány
-      bool currentState = !digitalRead(rowPins[row]); // Pull-up miatt invertált
-      
+    // Oszlopok olvasása
+    for (int col = 0; col < NUM_COLS; col++) {
+      int keyIndex = row * NUM_COLS + col; // Dinamikus számítás
+      bool currentState = !digitalRead(colPins[col]); // Pull-up miatt invertált
+
       keyStates[keyIndex] = currentState;
       
       // Billentyű lenyomás detektálása (rising edge)
@@ -174,11 +181,15 @@ void handleKeys() {
       
       lastKeyStates[keyIndex] = keyStates[keyIndex];
     }
+    
+    // Sor deaktiválása (HIGH)
+    digitalWrite(rowPins[row], HIGH);
+    delayMicroseconds(500);
   }
   
-  // Összes oszlop deaktiválása (HIGH) a szkennelés után
-  for (int i = 0; i < 4; i++) {
-    digitalWrite(colPins[i], HIGH);
+  // Összes sor deaktiválása (HIGH) a szkennelés után
+  for (int i = 0; i < NUM_ROWS; i++) {
+    digitalWrite(rowPins[i], HIGH);
   }
 }
 
@@ -209,6 +220,7 @@ void setup() {
   #endif
 
   Wire.begin();
+  //Keyboard.begin();
   
   // // I2C eszközök keresése
   // Serial.println("Scanning I2C devices...");
@@ -283,30 +295,38 @@ void setup() {
   
   digitalWrite(greenPin, LOW);  
   
-  // Mátrix billentyűzet pinek inicializálása
-  // Oszlop pinek (OUTPUT, kezdetben HIGH - inaktív)
-  for (int i = 0; i < 4; i++) {
-    pinMode(colPins[i], OUTPUT);
-    digitalWrite(colPins[i], HIGH); // Inaktív állapot
+  // Mátrix billentyűzet pinek inicializálása (dinamikus méretekkel)
+  // Sor pinek (OUTPUT, kezdetben HIGH - inaktív)
+  for (int i = 0; i < NUM_ROWS; i++) {
+    pinMode(rowPins[i], OUTPUT);
+    digitalWrite(rowPins[i], HIGH); // Inaktív állapot
   }
   
-  // Sor pinek (INPUT_PULLUP)
-  for (int i = 0; i < 3; i++) {
-    pinMode(rowPins[i], INPUT_PULLUP);
+  // Oszlop pinek (INPUT_PULLUP)
+  for (int i = 0; i < NUM_COLS; i++) {
+    pinMode(colPins[i], INPUT_PULLUP);
   }
   
   #ifndef USE_MINIMAL_DISPLAY
-  Serial.println(F("Matrix keyboard pins configured:"));
-  Serial.print(F("Column pins: A0, A1, A2, A3 ("));
-  for (int i = 0; i < 4; i++) {
-    Serial.print(colPins[i]);
-    if (i < 3) Serial.print(F(", "));
+  Serial.print(F("Matrix keyboard pins configured ("));
+  Serial.print(NUM_ROWS);
+  Serial.print(F("x"));
+  Serial.print(NUM_COLS);
+  Serial.print(F(" matrix, "));
+  Serial.print(NUM_KEYS);
+  Serial.println(F(" keys total):"));
+  
+  Serial.print(F("Row pins (OUTPUT): "));
+  for (int i = 0; i < NUM_ROWS; i++) {
+    Serial.print(rowPins[i]);
+    if (i < NUM_ROWS - 1) Serial.print(F(", "));
   }
   Serial.println(F(")"));
-  Serial.print(F("Row pins: A4, A5, A6 ("));
-  for (int i = 0; i < 3; i++) {
-    Serial.print(rowPins[i]);
-    if (i < 2) Serial.print(F(", "));
+  
+  Serial.print(F("Column pins (INPUT_PULLUP): "));
+  for (int i = 0; i < NUM_COLS; i++) {
+    Serial.print(colPins[i]);
+    if (i < NUM_COLS - 1) Serial.print(F(", "));
   }
   Serial.println(F(")"));
   #endif
